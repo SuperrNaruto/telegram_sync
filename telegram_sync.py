@@ -112,40 +112,41 @@ class TelegramSyncer:
             has_file = False
             file_to_send = None
             
-            # 按优先级检查文件类型
-            if message.document:
+            # 按优先级检查文件类型 - 使用安全的属性访问
+            if getattr(message, 'document', None):
                 file_to_send = message.document
                 has_file = True
-                logger.info(f"检测到文档: {message.document.mime_type if message.document.mime_type else 'unknown'}")
-            elif message.photo:
+                mime_type = getattr(message.document, 'mime_type', 'unknown')
+                logger.info(f"检测到文档: {mime_type}")
+            elif getattr(message, 'photo', None):
                 file_to_send = message.photo
                 has_file = True
                 logger.info("检测到图片")
-            elif message.video:
+            elif getattr(message, 'video', None):
                 file_to_send = message.video
                 has_file = True
                 logger.info("检测到视频")
-            elif message.audio:
+            elif getattr(message, 'audio', None):
                 file_to_send = message.audio
                 has_file = True
                 logger.info("检测到音频")
-            elif message.voice:
+            elif getattr(message, 'voice', None):
                 file_to_send = message.voice
                 has_file = True
                 logger.info("检测到语音")
-            elif message.video_note:
+            elif getattr(message, 'video_note', None):
                 file_to_send = message.video_note
                 has_file = True
                 logger.info("检测到视频消息")
-            elif message.sticker:
+            elif getattr(message, 'sticker', None):
                 file_to_send = message.sticker
                 has_file = True
                 logger.info("检测到贴纸")
-            elif message.animation:
+            elif getattr(message, 'animation', None):
                 file_to_send = message.animation
                 has_file = True
                 logger.info("检测到动画/GIF")
-            elif message.media:
+            elif getattr(message, 'media', None):
                 file_to_send = message.media
                 has_file = True
                 logger.info(f"检测到其他媒体: {type(message.media)}")
@@ -196,12 +197,22 @@ class TelegramSyncer:
     
     def should_sync_message(self, message):
         """检查消息是否应该被同步"""
+        # 跳过系统消息（如用户加入/离开等）
+        if hasattr(message, '__class__') and 'MessageService' in str(message.__class__):
+            return False
+        
         # 检查消息是否有内容 - 包括所有文件类型
         has_text = bool(message.text)
         has_media = bool(
-            message.media or message.document or message.photo or message.video or
-            message.audio or message.voice or message.video_note or 
-            message.sticker or message.animation
+            getattr(message, 'media', None) or 
+            getattr(message, 'document', None) or 
+            getattr(message, 'photo', None) or 
+            getattr(message, 'video', None) or
+            getattr(message, 'audio', None) or 
+            getattr(message, 'voice', None) or 
+            getattr(message, 'video_note', None) or 
+            getattr(message, 'sticker', None) or 
+            getattr(message, 'animation', None)
         )
         
         # 如果既没有文本也没有媒体，跳过
@@ -309,30 +320,57 @@ class TelegramSyncer:
             # 同步消息
             synced_count = 0
             for i, message in enumerate(messages):
-                # 添加调试信息 - 检测所有文件类型
+                # 添加调试信息 - 检测所有文件类型（安全访问）
                 msg_types = []
-                if message.text:
+                
+                # 检查消息类型
+                if hasattr(message, '__class__') and 'MessageService' in str(message.__class__):
+                    msg_types.append("系统消息")
+                elif getattr(message, 'text', None):
                     msg_types.append("文本")
-                if message.document:
-                    mime_type = message.document.mime_type if message.document.mime_type else 'unknown'
-                    file_name = message.document.attributes[0].file_name if message.document.attributes and hasattr(message.document.attributes[0], 'file_name') else 'unnamed'
-                    msg_types.append(f"文档({mime_type}:{file_name})")
-                if message.photo:
+                
+                # 检查文件类型
+                if getattr(message, 'document', None):
+                    mime_type = getattr(message.document, 'mime_type', 'unknown')
+                    try:
+                        file_name = 'unnamed'
+                        if hasattr(message.document, 'attributes') and message.document.attributes:
+                            for attr in message.document.attributes:
+                                if hasattr(attr, 'file_name') and attr.file_name:
+                                    file_name = attr.file_name
+                                    break
+                        msg_types.append(f"文档({mime_type}:{file_name})")
+                    except:
+                        msg_types.append(f"文档({mime_type})")
+                        
+                if getattr(message, 'photo', None):
                     msg_types.append("图片")
-                if message.video:
+                if getattr(message, 'video', None):
                     msg_types.append("视频")
-                if message.audio:
+                if getattr(message, 'audio', None):
                     msg_types.append("音频")
-                if message.voice:
+                if getattr(message, 'voice', None):
                     msg_types.append("语音")
-                if message.video_note:
+                if getattr(message, 'video_note', None):
                     msg_types.append("视频消息")
-                if message.sticker:
+                if getattr(message, 'sticker', None):
                     msg_types.append("贴纸")
-                if message.animation:
+                if getattr(message, 'animation', None):
                     msg_types.append("动画/GIF")
-                if message.media and not any([message.document, message.photo, message.video, message.audio, message.voice, message.video_note, message.sticker, message.animation]):
-                    msg_types.append(f"其他媒体({type(message.media).__name__})")
+                if getattr(message, 'media', None):
+                    # 检查是否已经识别了其他媒体类型
+                    known_media = any([
+                        getattr(message, 'document', None),
+                        getattr(message, 'photo', None),
+                        getattr(message, 'video', None),
+                        getattr(message, 'audio', None),
+                        getattr(message, 'voice', None),
+                        getattr(message, 'video_note', None),
+                        getattr(message, 'sticker', None),
+                        getattr(message, 'animation', None)
+                    ])
+                    if not known_media:
+                        msg_types.append(f"其他媒体({type(message.media).__name__})")
                 
                 msg_type = "+".join(msg_types) if msg_types else "空消息"
                 
