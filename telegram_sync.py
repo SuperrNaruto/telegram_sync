@@ -110,28 +110,58 @@ class TelegramSyncer:
                 if footer:
                     content += f"\n\n{' | '.join(footer)}"
             
-            # 发送消息
+            # 发送消息 - 简化逻辑，直接转发整个消息
             sent_message = None
             
-            if message.media or message.document or message.photo or message.video:
-                sent_message = await self.client.send_file(
-                    target_id, 
-                    message.media or message.document or message.photo or message.video, 
-                    caption=content if content else None,
-                    reply_to=reply_to_msg_id
+            try:
+                # 尝试直接转发消息（保持原始格式）
+                sent_message = await self.client.forward_messages(
+                    target_id,
+                    message,
+                    source_chat_id
                 )
-            elif content:
-                sent_message = await self.client.send_message(
-                    target_id, 
-                    content,
-                    reply_to=reply_to_msg_id
-                )
-            else:
-                return False
+                
+                # 如果需要添加来源信息，发送一条额外的消息
+                if self.config.get('add_source_info', True) or add_timestamp:
+                    footer = []
+                    if self.config.get('add_source_info', True):
+                        footer.append(f"📢 来源: {source_name}")
+                    if add_timestamp and message.date:
+                        footer.append(f"🕐 时间: {message.date.strftime('%Y-%m-%d %H:%M:%S')}")
+                    
+                    if footer:
+                        await self.client.send_message(
+                            target_id,
+                            ' | '.join(footer),
+                            reply_to=sent_message[0].id if isinstance(sent_message, list) else sent_message.id
+                        )
+                
+            except Exception as forward_error:
+                # 如果转发失败，尝试手动发送
+                logger.warning(f"转发失败，尝试手动发送: {forward_error}")
+                
+                if message.media or message.document or message.photo or message.video:
+                    sent_message = await self.client.send_file(
+                        target_id, 
+                        message.media or message.document or message.photo or message.video, 
+                        caption=content if content else None,
+                        reply_to=reply_to_msg_id
+                    )
+                elif content:
+                    sent_message = await self.client.send_message(
+                        target_id, 
+                        content,
+                        reply_to=reply_to_msg_id
+                    )
+                else:
+                    return False
             
             # 保存消息ID映射，用于后续回复
             if sent_message:
-                self.message_mapping[message.id] = sent_message.id
+                if isinstance(sent_message, list):
+                    self.message_mapping[message.id] = sent_message[0].id
+                else:
+                    self.message_mapping[message.id] = sent_message.id
             
             return True
             
@@ -141,25 +171,31 @@ class TelegramSyncer:
     
     def should_sync_message(self, message):
         """检查消息是否应该被同步"""
-        # 跳过空消息
-        if not message.text and not message.media and not message.document and not message.photo and not message.video:
+        # 检查消息是否有内容
+        has_text = bool(message.text)
+        has_media = bool(message.media or message.document or message.photo or message.video)
+        
+        # 如果既没有文本也没有媒体，跳过
+        if not has_text and not has_media:
             return False
             
         filters = self.config.get('filters', {})
         
+        # 如果没有设置任何过滤器，同步所有消息
+        if not any(filters.values()):
+            return True
+        
         # 关键词过滤
-        if filters.get('keywords') and message.text:
+        if filters.get('keywords') and has_text:
             if not any(keyword.lower() in message.text.lower() for keyword in filters['keywords']):
                 return False
         
         # 排除关键词
-        if filters.get('exclude_keywords') and message.text:
+        if filters.get('exclude_keywords') and has_text:
             if any(keyword.lower() in message.text.lower() for keyword in filters['exclude_keywords']):
                 return False
         
         # 媒体类型过滤
-        has_media = message.media or message.document or message.photo or message.video
-        
         if filters.get('media_only') and not has_media:
             return False
         
@@ -241,6 +277,21 @@ class TelegramSyncer:
             # 同步消息
             synced_count = 0
             for i, message in enumerate(messages):
+                # 添加调试信息
+                msg_type = "文本" if message.text else ""
+                if message.media:
+                    msg_type += "媒体"
+                if message.document:
+                    msg_type += "文档"
+                if message.photo:
+                    msg_type += "图片"
+                if message.video:
+                    msg_type += "视频"
+                
+                is_reply = "回复" if message.reply_to else "普通"
+                
+                logger.info(f"处理消息 {i+1}: {msg_type} {is_reply}消息")
+                
                 success = await self.sync_single_message(
                     message, 
                     source_chat_id, 
@@ -250,6 +301,9 @@ class TelegramSyncer:
                 
                 if success:
                     synced_count += 1
+                    logger.info(f"✅ 消息 {i+1} 同步成功")
+                else:
+                    logger.warning(f"❌ 消息 {i+1} 同步失败")
                 
                 # 显示进度
                 if (i + 1) % 10 == 0:
