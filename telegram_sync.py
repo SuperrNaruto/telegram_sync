@@ -105,42 +105,71 @@ class TelegramSyncer:
             if footer:
                 content += f"\n\n{' | '.join(footer)}"
             
-            # 发送消息 - 手动发送以完全控制格式
+            # 发送消息 - 优先处理所有类型的文件
             sent_message = None
             
-            # 检查消息是否有文件
+            # 检查是否有任何类型的媒体文件
+            has_file = False
+            file_to_send = None
+            
+            # 按优先级检查文件类型
             if message.document:
-                # 发送文档
-                sent_message = await self.client.send_file(
-                    target_id,
-                    message.document,
-                    caption=content if content else None,
-                    reply_to=reply_to_msg_id
-                )
+                file_to_send = message.document
+                has_file = True
+                logger.info(f"检测到文档: {message.document.mime_type if message.document.mime_type else 'unknown'}")
             elif message.photo:
-                # 发送图片
-                sent_message = await self.client.send_file(
-                    target_id,
-                    message.photo,
-                    caption=content if content else None,
-                    reply_to=reply_to_msg_id
-                )
+                file_to_send = message.photo
+                has_file = True
+                logger.info("检测到图片")
             elif message.video:
-                # 发送视频
-                sent_message = await self.client.send_file(
-                    target_id,
-                    message.video,
-                    caption=content if content else None,
-                    reply_to=reply_to_msg_id
-                )
+                file_to_send = message.video
+                has_file = True
+                logger.info("检测到视频")
+            elif message.audio:
+                file_to_send = message.audio
+                has_file = True
+                logger.info("检测到音频")
+            elif message.voice:
+                file_to_send = message.voice
+                has_file = True
+                logger.info("检测到语音")
+            elif message.video_note:
+                file_to_send = message.video_note
+                has_file = True
+                logger.info("检测到视频消息")
+            elif message.sticker:
+                file_to_send = message.sticker
+                has_file = True
+                logger.info("检测到贴纸")
+            elif message.animation:
+                file_to_send = message.animation
+                has_file = True
+                logger.info("检测到动画/GIF")
             elif message.media:
-                # 发送其他媒体
-                sent_message = await self.client.send_file(
-                    target_id,
-                    message.media,
-                    caption=content if content else None,
-                    reply_to=reply_to_msg_id
-                )
+                file_to_send = message.media
+                has_file = True
+                logger.info(f"检测到其他媒体: {type(message.media)}")
+            
+            # 发送文件或文本
+            if has_file and file_to_send:
+                try:
+                    sent_message = await self.client.send_file(
+                        target_id,
+                        file_to_send,
+                        caption=content if content else None,
+                        reply_to=reply_to_msg_id
+                    )
+                    logger.info("✅ 文件发送成功")
+                except Exception as file_error:
+                    logger.error(f"❌ 文件发送失败: {file_error}")
+                    # 如果文件发送失败，尝试只发送文本
+                    if content:
+                        sent_message = await self.client.send_message(
+                            target_id,
+                            content,
+                            reply_to=reply_to_msg_id
+                        )
+                        logger.info("✅ 文本发送成功（文件发送失败后的备选）")
             elif content:
                 # 发送纯文本
                 sent_message = await self.client.send_message(
@@ -148,7 +177,9 @@ class TelegramSyncer:
                     content,
                     reply_to=reply_to_msg_id
                 )
+                logger.info("✅ 文本消息发送成功")
             else:
+                logger.warning("❌ 消息既没有文件也没有文本内容")
                 return False
             
             # 保存消息ID映射，用于后续回复
@@ -165,9 +196,13 @@ class TelegramSyncer:
     
     def should_sync_message(self, message):
         """检查消息是否应该被同步"""
-        # 检查消息是否有内容
+        # 检查消息是否有内容 - 包括所有文件类型
         has_text = bool(message.text)
-        has_media = bool(message.media or message.document or message.photo or message.video)
+        has_media = bool(
+            message.media or message.document or message.photo or message.video or
+            message.audio or message.voice or message.video_note or 
+            message.sticker or message.animation
+        )
         
         # 如果既没有文本也没有媒体，跳过
         if not has_text and not has_media:
@@ -274,18 +309,30 @@ class TelegramSyncer:
             # 同步消息
             synced_count = 0
             for i, message in enumerate(messages):
-                # 添加调试信息
+                # 添加调试信息 - 检测所有文件类型
                 msg_types = []
                 if message.text:
                     msg_types.append("文本")
                 if message.document:
-                    msg_types.append(f"文档({message.document.mime_type if message.document.mime_type else 'unknown'})")
+                    mime_type = message.document.mime_type if message.document.mime_type else 'unknown'
+                    file_name = message.document.attributes[0].file_name if message.document.attributes and hasattr(message.document.attributes[0], 'file_name') else 'unnamed'
+                    msg_types.append(f"文档({mime_type}:{file_name})")
                 if message.photo:
                     msg_types.append("图片")
                 if message.video:
                     msg_types.append("视频")
-                if message.media and not any([message.document, message.photo, message.video]):
-                    msg_types.append("媒体")
+                if message.audio:
+                    msg_types.append("音频")
+                if message.voice:
+                    msg_types.append("语音")
+                if message.video_note:
+                    msg_types.append("视频消息")
+                if message.sticker:
+                    msg_types.append("贴纸")
+                if message.animation:
+                    msg_types.append("动画/GIF")
+                if message.media and not any([message.document, message.photo, message.video, message.audio, message.voice, message.video_note, message.sticker, message.animation]):
+                    msg_types.append(f"其他媒体({type(message.media).__name__})")
                 
                 msg_type = "+".join(msg_types) if msg_types else "空消息"
                 
