@@ -188,6 +188,7 @@ class TelegramSyncer:
                 new_msg_id = sent_message.id if hasattr(sent_message, 'id') else sent_message
                 self.message_mapping[message.id] = new_msg_id
                 logger.info(f"保存消息映射: 原ID {message.id} -> 新ID {new_msg_id}")
+                logger.info(f"当前映射表大小: {len(self.message_mapping)}")
             
             return True
             
@@ -199,10 +200,11 @@ class TelegramSyncer:
         """检查消息是否应该被同步"""
         # 跳过系统消息（如用户加入/离开等）
         if hasattr(message, '__class__') and 'MessageService' in str(message.__class__):
+            logger.info(f"跳过系统消息: {message.__class__.__name__}")
             return False
         
         # 检查消息是否有内容 - 包括所有文件类型
-        has_text = bool(message.text)
+        has_text = bool(getattr(message, 'text', None))
         has_media = bool(
             getattr(message, 'media', None) or 
             getattr(message, 'document', None) or 
@@ -215,8 +217,11 @@ class TelegramSyncer:
             getattr(message, 'animation', None)
         )
         
-        # 如果既没有文本也没有媒体，跳过
-        if not has_text and not has_media:
+        # 如果既没有文本也没有媒体，但是是回复消息，也要同步（可能是纯文件回复）
+        is_reply = bool(getattr(message, 'reply_to', None))
+        
+        if not has_text and not has_media and not is_reply:
+            logger.info(f"跳过空消息: ID {message.id}")
             return False
             
         filters = self.config.get('filters', {})
@@ -377,21 +382,30 @@ class TelegramSyncer:
                 if message.reply_to:
                     reply_id = message.reply_to.reply_to_msg_id if hasattr(message.reply_to, 'reply_to_msg_id') else "unknown"
                     logger.info(f"处理消息 {i+1}: {msg_type} 回复消息 (回复ID: {reply_id})")
+                    logger.info(f"当前消息ID: {message.id}")
+                    logger.info(f"映射表中是否有回复目标: {reply_id in self.message_mapping}")
                 else:
-                    logger.info(f"处理消息 {i+1}: {msg_type} 普通消息")
+                    logger.info(f"处理消息 {i+1}: {msg_type} 普通消息 (ID: {message.id})")
                 
-                success = await self.sync_single_message(
-                    message, 
-                    source_chat_id, 
-                    target_channel,
-                    add_timestamp=True
-                )
+                # 检查是否应该同步这条消息
+                should_sync = self.should_sync_message(message)
+                logger.info(f"消息 {i+1} 是否应该同步: {should_sync}")
                 
-                if success:
-                    synced_count += 1
-                    logger.info(f"✅ 消息 {i+1} 同步成功")
+                if should_sync:
+                    success = await self.sync_single_message(
+                        message, 
+                        source_chat_id, 
+                        target_channel,
+                        add_timestamp=True
+                    )
+                    
+                    if success:
+                        synced_count += 1
+                        logger.info(f"✅ 消息 {i+1} 同步成功")
+                    else:
+                        logger.warning(f"❌ 消息 {i+1} 同步失败")
                 else:
-                    logger.warning(f"❌ 消息 {i+1} 同步失败")
+                    logger.info(f"⏭️ 消息 {i+1} 被过滤，跳过同步")
                 
                 # 显示进度
                 if (i + 1) % 10 == 0:
