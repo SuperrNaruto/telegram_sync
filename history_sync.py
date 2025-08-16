@@ -18,9 +18,17 @@ async def main():
     print("=== Telegram历史消息同步工具 ===\n")
     
     # 加载配置
-    syncer = TelegramSyncer()
-    if not syncer.config:
-        logger.error("无法加载配置文件")
+    try:
+        syncer = TelegramSyncer()
+        if not syncer.config:
+            print("错误: 无法加载配置文件")
+            print("请确保 config.json 文件存在且格式正确")
+            print("你可以运行 python quick_setup.py 来创建配置文件")
+            return
+    except Exception as e:
+        print(f"配置文件错误: {e}")
+        print("请检查 config.json 文件格式是否正确")
+        print("你可以运行 python quick_setup.py 来重新创建配置文件")
         return
     
     await syncer.initialize_client()

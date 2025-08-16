@@ -29,9 +29,23 @@ class TelegramSyncer:
         """加载配置文件"""
         try:
             with open(config_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                config = json.load(f)
+                
+            # 转换source_chats的键为整数
+            if 'source_chats' in config:
+                source_chats = {}
+                for chat_id, name in config['source_chats'].items():
+                    # 清理chat_id，去除空格并转换为整数
+                    clean_chat_id = str(chat_id).strip()
+                    source_chats[int(clean_chat_id)] = name
+                config['source_chats'] = source_chats
+                
+            return config
         except FileNotFoundError:
             logger.error(f"配置文件 {config_file} 不存在")
+            return None
+        except json.JSONDecodeError as e:
+            logger.error(f"配置文件格式错误: {e}")
             return None
     
     async def initialize_client(self):
@@ -137,6 +151,22 @@ class TelegramSyncer:
             source_name = self.config['source_chats'].get(source_chat_id, str(source_chat_id))
             
             logger.info(f"开始同步 {source_name} 的历史消息...")
+            logger.info(f"源ID: {source_chat_id} (类型: {type(source_chat_id)})")
+            
+            # 确保chat_id是整数
+            chat_id = int(source_chat_id)
+            
+            # 先尝试获取群组信息
+            try:
+                entity = await self.client.get_entity(chat_id)
+                logger.info(f"成功获取群组信息: {entity.title if hasattr(entity, 'title') else entity}")
+            except Exception as entity_error:
+                logger.error(f"无法获取群组 {chat_id} 的信息: {entity_error}")
+                logger.error("可能的原因:")
+                logger.error("1. 群组ID不正确")
+                logger.error("2. 你的账号没有访问该群组的权限")
+                logger.error("3. 群组不存在或已被删除")
+                return
             
             # 计算时间范围
             offset_date = None
@@ -146,7 +176,7 @@ class TelegramSyncer:
             # 获取历史消息
             messages = []
             async for message in self.client.iter_messages(
-                source_chat_id, 
+                chat_id,
                 limit=limit,
                 offset_date=offset_date,
                 reverse=True  # 按时间顺序同步
@@ -179,6 +209,7 @@ class TelegramSyncer:
             
         except Exception as e:
             logger.error(f"同步历史消息时出错: {e}")
+            logger.error(f"群组: {source_name} (ID: {source_chat_id})")
     
     async def sync_all_history(self):
         """同步所有源的历史消息"""
