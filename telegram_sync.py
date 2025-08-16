@@ -100,61 +100,60 @@ class TelegramSyncer:
                         pass
             
             # 添加来源和时间信息
-            if self.config.get('add_source_info', True) or add_timestamp:
-                footer = []
-                if self.config.get('add_source_info', True):
-                    footer.append(f"📢 来源: {source_name}")
-                if add_timestamp and message.date:
-                    footer.append(f"🕐 时间: {message.date.strftime('%Y-%m-%d %H:%M:%S')}")
-                
-                if footer:
-                    content += f"\n\n{' | '.join(footer)}"
+            footer = []
+            if self.config.get('add_source_info', True):
+                footer.append(f"📢 来源: {source_name}")
+            if add_timestamp and message.date:
+                footer.append(f"🕐 时间: {message.date.strftime('%Y-%m-%d %H:%M:%S')}")
             
-            # 发送消息 - 简化逻辑，直接转发整个消息
+            if footer:
+                content += f"\n\n{' | '.join(footer)}"
+            
+            # 发送消息 - 手动发送以完全控制格式
             sent_message = None
             
-            try:
-                # 尝试直接转发消息（保持原始格式）
-                sent_message = await self.client.forward_messages(
+            # 检查消息是否有文件
+            if message.document:
+                # 发送文档
+                sent_message = await self.client.send_file(
                     target_id,
-                    message,
-                    source_chat_id
+                    message.document,
+                    caption=content if content else None,
+                    reply_to=reply_to_msg_id
                 )
-                
-                # 如果需要添加来源信息，发送一条额外的消息
-                if self.config.get('add_source_info', True) or add_timestamp:
-                    footer = []
-                    if self.config.get('add_source_info', True):
-                        footer.append(f"📢 来源: {source_name}")
-                    if add_timestamp and message.date:
-                        footer.append(f"🕐 时间: {message.date.strftime('%Y-%m-%d %H:%M:%S')}")
-                    
-                    if footer:
-                        await self.client.send_message(
-                            target_id,
-                            ' | '.join(footer),
-                            reply_to=sent_message[0].id if isinstance(sent_message, list) else sent_message.id
-                        )
-                
-            except Exception as forward_error:
-                # 如果转发失败，尝试手动发送
-                logger.warning(f"转发失败，尝试手动发送: {forward_error}")
-                
-                if message.media or message.document or message.photo or message.video:
-                    sent_message = await self.client.send_file(
-                        target_id, 
-                        message.media or message.document or message.photo or message.video, 
-                        caption=content if content else None,
-                        reply_to=reply_to_msg_id
-                    )
-                elif content:
-                    sent_message = await self.client.send_message(
-                        target_id, 
-                        content,
-                        reply_to=reply_to_msg_id
-                    )
-                else:
-                    return False
+            elif message.photo:
+                # 发送图片
+                sent_message = await self.client.send_file(
+                    target_id,
+                    message.photo,
+                    caption=content if content else None,
+                    reply_to=reply_to_msg_id
+                )
+            elif message.video:
+                # 发送视频
+                sent_message = await self.client.send_file(
+                    target_id,
+                    message.video,
+                    caption=content if content else None,
+                    reply_to=reply_to_msg_id
+                )
+            elif message.media:
+                # 发送其他媒体
+                sent_message = await self.client.send_file(
+                    target_id,
+                    message.media,
+                    caption=content if content else None,
+                    reply_to=reply_to_msg_id
+                )
+            elif content:
+                # 发送纯文本
+                sent_message = await self.client.send_message(
+                    target_id,
+                    content,
+                    reply_to=reply_to_msg_id
+                )
+            else:
+                return False
             
             # 保存消息ID映射，用于后续回复
             if sent_message:
@@ -278,16 +277,19 @@ class TelegramSyncer:
             synced_count = 0
             for i, message in enumerate(messages):
                 # 添加调试信息
-                msg_type = "文本" if message.text else ""
-                if message.media:
-                    msg_type += "媒体"
+                msg_types = []
+                if message.text:
+                    msg_types.append("文本")
                 if message.document:
-                    msg_type += "文档"
+                    msg_types.append(f"文档({message.document.mime_type if message.document.mime_type else 'unknown'})")
                 if message.photo:
-                    msg_type += "图片"
+                    msg_types.append("图片")
                 if message.video:
-                    msg_type += "视频"
+                    msg_types.append("视频")
+                if message.media and not any([message.document, message.photo, message.video]):
+                    msg_types.append("媒体")
                 
+                msg_type = "+".join(msg_types) if msg_types else "空消息"
                 is_reply = "回复" if message.reply_to else "普通"
                 
                 logger.info(f"处理消息 {i+1}: {msg_type} {is_reply}消息")
