@@ -24,6 +24,7 @@ class TelegramSyncer:
     def __init__(self, config_file='config.json'):
         self.config = self.load_config(config_file)
         self.client = None
+        self.message_mapping = {}  # 用于映射原消息ID到新消息ID
         
     def load_config(self, config_file):
         """加载配置文件"""
@@ -71,15 +72,32 @@ class TelegramSyncer:
             if not self.should_sync_message(message):
                 return False
             
+            # 转换目标频道ID为整数（如果是字符串格式）
+            if isinstance(target_channel, str) and target_channel.startswith('-'):
+                target_id = int(target_channel)
+            else:
+                target_id = target_channel
+            
             # 构建消息内容
             content = ""
-            media = None
             
             if message.text:
                 content = message.text
             
-            if message.media:
-                media = message.media
+            # 处理回复消息
+            reply_to_msg_id = None
+            if message.reply_to and hasattr(message.reply_to, 'reply_to_msg_id'):
+                original_reply_id = message.reply_to.reply_to_msg_id
+                # 查找映射的消息ID
+                reply_to_msg_id = self.message_mapping.get(original_reply_id)
+                if not reply_to_msg_id:
+                    # 如果没有找到映射，尝试使用最近的消息
+                    try:
+                        recent_messages = await self.client.get_messages(target_id, limit=5)
+                        if recent_messages:
+                            reply_to_msg_id = recent_messages[0].id
+                    except Exception:
+                        pass
             
             # 添加来源和时间信息
             if self.config.get('add_source_info', True) or add_timestamp:
@@ -92,23 +110,28 @@ class TelegramSyncer:
                 if footer:
                     content += f"\n\n{' | '.join(footer)}"
             
-            # 转换目标频道ID为整数（如果是字符串格式）
-            if isinstance(target_channel, str) and target_channel.startswith('-'):
-                target_id = int(target_channel)
-            else:
-                target_id = target_channel
-            
             # 发送消息
-            if media:
-                await self.client.send_file(
+            sent_message = None
+            
+            if message.media or message.document or message.photo or message.video:
+                sent_message = await self.client.send_file(
                     target_id, 
-                    media, 
-                    caption=content if content else None
+                    message.media or message.document or message.photo or message.video, 
+                    caption=content if content else None,
+                    reply_to=reply_to_msg_id
                 )
             elif content:
-                await self.client.send_message(target_id, content)
+                sent_message = await self.client.send_message(
+                    target_id, 
+                    content,
+                    reply_to=reply_to_msg_id
+                )
             else:
                 return False
+            
+            # 保存消息ID映射，用于后续回复
+            if sent_message:
+                self.message_mapping[message.id] = sent_message.id
             
             return True
             
@@ -118,6 +141,10 @@ class TelegramSyncer:
     
     def should_sync_message(self, message):
         """检查消息是否应该被同步"""
+        # 跳过空消息
+        if not message.text and not message.media and not message.document and not message.photo and not message.video:
+            return False
+            
         filters = self.config.get('filters', {})
         
         # 关键词过滤
@@ -131,10 +158,12 @@ class TelegramSyncer:
                 return False
         
         # 媒体类型过滤
-        if filters.get('media_only') and not message.media:
+        has_media = message.media or message.document or message.photo or message.video
+        
+        if filters.get('media_only') and not has_media:
             return False
         
-        if filters.get('text_only') and message.media:
+        if filters.get('text_only') and has_media:
             return False
         
         return True
