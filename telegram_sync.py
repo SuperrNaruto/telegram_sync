@@ -92,15 +92,21 @@ class TelegramSyncer:
                 if footer:
                     content += f"\n\n{' | '.join(footer)}"
             
+            # 转换目标频道ID为整数（如果是字符串格式）
+            if isinstance(target_channel, str) and target_channel.startswith('-'):
+                target_id = int(target_channel)
+            else:
+                target_id = target_channel
+            
             # 发送消息
             if media:
                 await self.client.send_file(
-                    target_channel, 
+                    target_id, 
                     media, 
                     caption=content if content else None
                 )
             elif content:
-                await self.client.send_message(target_channel, content)
+                await self.client.send_message(target_id, content)
             else:
                 return False
             
