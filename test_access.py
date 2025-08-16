@@ -42,14 +42,15 @@ async def test_access():
     
     print()
     
-    # 测试源群组
+    # 测试源频道/群组
     for chat_id_str, name in config['source_chats'].items():
         chat_id = int(chat_id_str.strip())
-        print(f"📡 测试源群组: {name} ({chat_id})")
+        print(f"📡 测试源: {name} ({chat_id})")
         
         try:
             entity = await client.get_entity(chat_id)
-            print(f"✅ 群组访问成功: {entity.title}")
+            entity_type = "频道" if hasattr(entity, 'broadcast') and entity.broadcast else "群组"
+            print(f"✅ {entity_type}访问成功: {entity.title}")
             
             # 获取最近几条消息测试
             message_count = 0
@@ -59,11 +60,26 @@ async def test_access():
             print(f"✅ 可以读取消息，测试获取了 {message_count} 条")
             
         except Exception as e:
-            print(f"❌ 群组访问失败: {e}")
+            print(f"❌ 访问失败: {e}")
             print("   可能原因:")
-            print("   - 群组ID不正确")
-            print("   - 你不是群组成员")
-            print("   - 群组设置了访问限制")
+            print("   - 频道/群组ID不正确")
+            print("   - 你没有访问权限")
+            print("   - 私有频道需要先加入")
+            
+            # 尝试在对话列表中查找
+            print("   🔍 在对话列表中查找...")
+            found = False
+            try:
+                async for dialog in client.iter_dialogs():
+                    if dialog.id == chat_id:
+                        print(f"   ✅ 在对话列表中找到: {dialog.name}")
+                        found = True
+                        break
+                
+                if not found:
+                    print("   ❌ 对话列表中也未找到")
+            except Exception as dialog_error:
+                print(f"   ❌ 查找对话列表失败: {dialog_error}")
         
         print()
     

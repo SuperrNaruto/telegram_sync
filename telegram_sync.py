@@ -156,17 +156,35 @@ class TelegramSyncer:
             # 确保chat_id是整数
             chat_id = int(source_chat_id)
             
-            # 先尝试获取群组信息
+            # 先尝试获取频道/群组信息
             try:
                 entity = await self.client.get_entity(chat_id)
-                logger.info(f"成功获取群组信息: {entity.title if hasattr(entity, 'title') else entity}")
+                entity_type = "频道" if hasattr(entity, 'broadcast') and entity.broadcast else "群组"
+                entity_name = entity.title if hasattr(entity, 'title') else str(entity)
+                logger.info(f"成功获取{entity_type}信息: {entity_name}")
             except Exception as entity_error:
-                logger.error(f"无法获取群组 {chat_id} 的信息: {entity_error}")
+                logger.error(f"无法获取频道/群组 {chat_id} 的信息: {entity_error}")
                 logger.error("可能的原因:")
-                logger.error("1. 群组ID不正确")
-                logger.error("2. 你的账号没有访问该群组的权限")
-                logger.error("3. 群组不存在或已被删除")
-                return
+                logger.error("1. 频道/群组ID不正确")
+                logger.error("2. 你的账号没有访问该频道/群组的权限")
+                logger.error("3. 频道/群组不存在或已被删除")
+                logger.error("4. 私有频道需要先加入或获得访问权限")
+                
+                # 尝试其他方法获取实体
+                logger.info("尝试其他方法获取频道信息...")
+                try:
+                    # 尝试通过对话列表查找
+                    async for dialog in self.client.iter_dialogs():
+                        if dialog.id == chat_id:
+                            logger.info(f"在对话列表中找到: {dialog.name}")
+                            entity = dialog.entity
+                            break
+                    else:
+                        logger.error("在对话列表中也未找到该频道")
+                        return
+                except Exception as dialog_error:
+                    logger.error(f"通过对话列表查找也失败: {dialog_error}")
+                    return
             
             # 计算时间范围
             offset_date = None
