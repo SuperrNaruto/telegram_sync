@@ -90,14 +90,10 @@ class TelegramSyncer:
                 original_reply_id = message.reply_to.reply_to_msg_id
                 # 查找映射的消息ID
                 reply_to_msg_id = self.message_mapping.get(original_reply_id)
-                if not reply_to_msg_id:
-                    # 如果没有找到映射，尝试使用最近的消息
-                    try:
-                        recent_messages = await self.client.get_messages(target_id, limit=5)
-                        if recent_messages:
-                            reply_to_msg_id = recent_messages[0].id
-                    except Exception:
-                        pass
+                if reply_to_msg_id:
+                    logger.info(f"找到回复目标: 原消息ID {original_reply_id} -> 新消息ID {reply_to_msg_id}")
+                else:
+                    logger.warning(f"未找到回复目标消息ID {original_reply_id}，将作为普通消息发送")
             
             # 添加来源和时间信息
             footer = []
@@ -157,10 +153,9 @@ class TelegramSyncer:
             
             # 保存消息ID映射，用于后续回复
             if sent_message:
-                if isinstance(sent_message, list):
-                    self.message_mapping[message.id] = sent_message[0].id
-                else:
-                    self.message_mapping[message.id] = sent_message.id
+                new_msg_id = sent_message.id if hasattr(sent_message, 'id') else sent_message
+                self.message_mapping[message.id] = new_msg_id
+                logger.info(f"保存消息映射: 原ID {message.id} -> 新ID {new_msg_id}")
             
             return True
             
@@ -267,9 +262,12 @@ class TelegramSyncer:
                 chat_id,
                 limit=limit,
                 offset_date=offset_date,
-                reverse=True  # 按时间顺序同步
+                reverse=True  # 按时间顺序同步，确保被回复的消息先处理
             ):
                 messages.append(message)
+            
+            # 确保消息按时间顺序排列（最旧的在前）
+            messages.sort(key=lambda x: x.date)
             
             logger.info(f"找到 {len(messages)} 条历史消息")
             
@@ -290,9 +288,12 @@ class TelegramSyncer:
                     msg_types.append("媒体")
                 
                 msg_type = "+".join(msg_types) if msg_types else "空消息"
-                is_reply = "回复" if message.reply_to else "普通"
                 
-                logger.info(f"处理消息 {i+1}: {msg_type} {is_reply}消息")
+                if message.reply_to:
+                    reply_id = message.reply_to.reply_to_msg_id if hasattr(message.reply_to, 'reply_to_msg_id') else "unknown"
+                    logger.info(f"处理消息 {i+1}: {msg_type} 回复消息 (回复ID: {reply_id})")
+                else:
+                    logger.info(f"处理消息 {i+1}: {msg_type} 普通消息")
                 
                 success = await self.sync_single_message(
                     message, 
