@@ -40,7 +40,27 @@ python setup.py
 - 帮你选择源和目标
 - 自动生成配置文件
 
-### 4. 开始同步
+### 4. 配置工具
+
+**方法1: 交互式配置 (推荐)**:
+```bash
+python setup.py
+```
+
+**方法2: 快速配置 (避免编码问题)**:
+```bash
+python quick_setup.py
+```
+
+**方法3: 命令行配置**:
+```bash
+python quick_setup.py <api_id> <api_hash> <phone> <target_channel> [source_ids...]
+```
+
+**方法4: 手动编辑**:
+直接编辑 `config.json` 文件，填入你的API信息。
+
+### 5. 开始同步
 
 **完整同步 (推荐)**:
 ```bash
@@ -133,9 +153,47 @@ python history_sync.py
 
 ### 常见问题
 
-1. **权限错误**: 确保你有访问源和目标的权限
-2. **API限制**: Telegram有API调用频率限制，程序会自动处理
-3. **会话过期**: 删除 `.session` 文件重新登录
+1. **编码错误**: 在Linux环境下如果遇到UTF-8编码问题，使用 `quick_setup.py` 或手动编辑配置文件
+2. **权限错误**: 确保你有访问源和目标的权限
+3. **API限制**: Telegram有API调用频率限制，程序会自动处理
+4. **会话过期**: 删除 `.session` 文件重新登录
+
+### 环境变量设置 (Linux)
+
+如果遇到编码问题，可以设置环境变量:
+```bash
+export PYTHONIOENCODING=utf-8
+export LC_ALL=C.UTF-8
+```
+
+### 配置文件示例
+
+如果配置工具出现问题，可以手动创建 `config.json`:
+```json
+{
+  "api_id": 12345678,
+  "api_hash": "your_api_hash_here",
+  "phone": "+8613800138000",
+  "target_channel": "-1002557556585",
+  "source_chats": {
+    -1002406053912: "源群组1",
+    -1002426727534: "源群组2",
+    -1001768155075: "源群组3"
+  },
+  "add_source_info": true,
+  "history_sync": {
+    "enabled": true,
+    "limit": 100,
+    "days_back": 7
+  },
+  "filters": {
+    "keywords": [],
+    "exclude_keywords": [],
+    "media_only": false,
+    "text_only": false
+  }
+}
+```
 
 ### 日志
 
