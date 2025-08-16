@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 设置脚本 - 帮助获取必要的配置信息
 """
 
 import json
 import asyncio
+import sys
+import locale
 from telethon import TelegramClient
+
+# 设置编码
+if sys.platform.startswith('linux'):
+    import os
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
+    locale.setlocale(locale.LC_ALL, 'C.UTF-8')
 
 async def get_chat_info():
     """获取群组/频道信息"""
@@ -47,7 +56,11 @@ async def get_chat_info():
     
     # 选择源群组/频道
     print("\n请选择要同步的源 (可以多个，用逗号分隔):")
-    source_input = input("输入源的用户名或ID: ")
+    try:
+        source_input = input("输入源的用户名或ID: ")
+    except UnicodeDecodeError:
+        print("输入编码错误，请重新输入:")
+        source_input = sys.stdin.buffer.read().decode('utf-8').strip()
     
     # 历史消息同步设置
     print("\n历史消息同步设置:")
